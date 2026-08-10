@@ -3,38 +3,46 @@ import pandas as pd
 import srcomapi as sr
 import srcomapi.datatypes as dt
 import requests
+import os
+import json
 
 class ObsoleteRuns():
     def __init__(self):
-        self.game_to_id = {}
-        self.id_to_game = {}
+        self.game_ids_path = "game_ids.txt"
+        if os.path.isfile(self.game_ids_path):
+            with open (self.game_ids_path, "r") as file:
+                self.game_to_id = json.load(file)
+                self.id_to_game = {value:key for key,value in self.game_to_id.items()}
+        else:
+            self.game_to_id = {}
+            self.id_to_game = {}
 
     def get_game_id(self,  name):
         #check the dictionary first
         if name in self.game_to_id:
-            print (f"Retrieving game \"{name}\", already stored as id \"{game_id}\"")
-            return self.game_to_id["name"]
+            return self.game_to_id[name]
 
         r = requests.get("https://www.speedrun.com/api/v1/games", params={"name": name})
         game_id = r.json()["data"][0]["id"]
 
         self.game_to_id[name] = game_id
         self.id_to_game[game_id] = name
-
-        print (f"Stored game \"{name}\" as id \"{game_id}\"")
+        with open(self.game_ids_path, "w") as file:
+            json.dump(self.game_to_id, file)
 
         return game_id
 
 obsruns = ObsoleteRuns()
 obsruns.get_game_id("Super Mario Bros")
 
-r = requests.get("https://www.speedrun.com/api/v1/games?name=super%20mario%20world")
-r.json()["data"][0]["id"]
 
-r = requests.get("https://www.speedrun.com/api/v1/leaderboards/smw/category/96_Exit")
-print (r.json())
+# r = requests.get("https://www.speedrun.com/api/v1/games?name=super%20mario%20world")
+# r.json()["data"][0]["id"]
 
-r.json()["data"]["game"]
+# r = requests.get("https://www.speedrun.com/api/v1/leaderboards/smw/category/96_Exit")
+# print (r.json())
+
+# r.json()["data"]["game"]
 
 # api = sr.SpeedrunCom()
 # game = api.search(sr.datatypes.Game, {"name": "super mario sunshine"})[0]
