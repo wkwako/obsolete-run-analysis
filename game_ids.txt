@@ -1,1 +1,1 @@
-{"Super Mario Bros": "om1m3625", "super mario bros": "om1m3625"}
+{"Super Mario Bros": "om1m3625", "super mario bros": "om1m3625", "Hollow Knight: Silksong": "y65r7g81", "Hollow Knight": "76rqmld8", "Dead by Daylight": "yd4o0z51", "Kirby Air Riders": "w6jgm776", "The Legend of Zelda: A Link to the Past": "9d3rr0dl"}
