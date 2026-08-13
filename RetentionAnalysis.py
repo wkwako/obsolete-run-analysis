@@ -4,6 +4,7 @@ import requests
 import os
 import json
 import datetime
+import dateutil
 
 #from datetime import date, timedelta
 
@@ -216,7 +217,33 @@ class RetentionAnalysis():
 
         return first_run_days, last_run_days
 
-    #def feature_
+    def feature_frequency(self, game_id, user_id, cutoff_date, months):
+
+        cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
+
+        #load and filter runs
+        data = self.load_runs(game_id)
+        runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
+
+        #calculate total runs before T (lifetime frequency)
+        lifetime_freq = len(runs)
+
+        #filter run by start date
+        start_window = cutoff_datetime - dateutil.relativedelta.relativedelta(months=months)
+        runs = [run for run in runs if datetime.datetime.fromisoformat(run["date"]) > start_window]
+
+        #calculate runs in the last x months (windowed frequency)
+        windowed_freq = len(runs)
+
+        return lifetime_freq, windowed_freq
+
+    def feature_density(self, lifetime_freq, first_run_days, last_run_days):
+        #calculate num_runs/active_span, where num_runs is lifetime frequency and active_span is last_run_days - first_run_days
+        active_span = first_run_days - last_run_days
+        if active_span == 0:
+            active_span = 1
+        density = lifetime_freq/active_span
+        return density
 
     def count_runs(self, game_id):
         count_runs = {}
@@ -343,7 +370,11 @@ user_id = "o86w5pwx"
 cutoff_date = "2023-04-05"
 
 first_date, last_date = ret.feature_recency(game_id, user_id, cutoff_date)
-print (first_date, last_date)
+print (f"first_date, last_date: {first_date}, {last_date}")
+
+lifetime_freq, windowed_freq = ret.feature_frequency(game_id, user_id, cutoff_date, 3)
+print (f"lifetime_freq, windowed_freq: {lifetime_freq}, {windowed_freq}")
+
 
 #print (ret.get_user("Lep"))
 
