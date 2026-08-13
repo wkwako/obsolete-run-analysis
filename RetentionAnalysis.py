@@ -156,7 +156,18 @@ class RetentionAnalysis():
 
         return cleaned_runs
 
-    def recency_runs(self, game_id, user_id, cutoff_date):
+    def recency_runs(self, game_id, user_id, cutoff_datetime):
+        """Expects a cutoff_datetime converted using datetime.datetime()"""
+
+        runs = self.load_and_format_runs(game_id, user_id, cutoff_datetime)
+
+        first_run = runs[0]
+        last_run = runs[1]
+
+        return first_run, last_run
+
+    def load_and_format_runs(self, game_id, user_id, cutoff_datetime):
+        """Pulls runs with game_id and user_id before or equal to cutoff_datetime."""
         #identify correct file
         path = os.path.join("run_data", f"runs_{game_id}.json")
 
@@ -164,43 +175,34 @@ class RetentionAnalysis():
             print ("Game data does not exist")
             return
 
-        cutoff = datetime.datetime.fromisoformat(cutoff_date)
-
         #get all runs associated with this user from the file
         with open(path) as file:
             data = json.load(file)
 
-        runs = []
         for category in data[game_id][user_id].keys():
             runs.extend(data[game_id][user_id][category])
+
+        runs = [run for run in runs if run["date"] <= cutoff_datetime]
+
         runs.sort(key=lambda run: run["date"])
 
-        last_run = None
-        first_run = None
-        for i, run in enumerate(runs):
-            run_dt = datetime.datetime.fromisoformat(run["date"])
+        return runs
 
-            #if run is within cutoff, set last_run immediately
-            if run_dt <= cutoff:
-                last_run = run
+    def feature_recency(self, game_id, user_id, cutoff_date):
+        """Expects a string cutoff_date in the form YYYY-MM-DD"""
+        cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
 
-                #set first_run if it hasn't already been set
-                if not first_run:
-                    first_run = run
+        first_run, last_run = self.recency_runs(game_id, user_id, cutoff_datetime)
 
-            else:
-                break
+        if first_run:
+            first_run_dt = datetime.datetime.fromisoformat(first_run["date"])
+            first_run = (cutoff_datetime - first_run_dt).days
+
+        if last_run:
+            last_run_dt = datetime.datetime.fromisoformat(last_run["date"])
+            last_run = (cutoff_datetime - last_run_dt).days
 
         return first_run, last_run
-
-    def feature_recency(self, cutoff_date, first_run, last_run):
-        first_run_dt = datetime.datetime.fromisoformat(first_run["date"])
-        first_run_days_diff = (cutoff_date - first_run_dt).days
-
-        last_run_dt = datetime.datetime.fromisoformat(last_run["date"])
-        last_run_days_diff = (cutoff_date - last_run_dt).days
-
-        return first_run_days_diff, last_run_days_diff
 
     def count_runs(self, game_id):
         count_runs = {}
