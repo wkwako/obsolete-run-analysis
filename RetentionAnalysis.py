@@ -157,11 +157,11 @@ class RetentionAnalysis():
 
         return cleaned_runs
 
-    def recency_runs(self, game_id, user_id, cutoff_datetime):
+    def recency_runs(self, runs):
         """Expects a cutoff_datetime converted using datetime.datetime()"""
 
-        data = self.load_runs(game_id)
-        runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
+        # data = self.load_runs(game_id)
+        # runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
 
         if not runs:
             return None, None
@@ -199,11 +199,28 @@ class RetentionAnalysis():
 
         return runs
 
-    def feature_recency(self, game_id, user_id, cutoff_date):
-        """Expects a string cutoff_date in the form YYYY-MM-DD"""
+    def features(self, game_id, user_id, cutoff_date, months):
         cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
 
-        first_run, last_run = self.recency_runs(game_id, user_id, cutoff_datetime)
+        #load and filter runs
+        data = self.load_runs(game_id)
+        runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
+
+        first_run_days, last_run_days = self.feature_recency(runs, cutoff_datetime)
+
+        lifetime_freq, windowed_freq = self.feature_frequency(runs, cutoff_datetime, months)
+
+        density = self.feature_density(lifetime_freq, first_run_days, last_run_days)
+
+        num_cats = self.feature_engagement_depth(runs)
+
+        return first_run_days, last_run_days, lifetime_freq, windowed_freq, density, num_cats
+
+    def feature_recency(self, runs, cutoff_datetime):
+        """Expects a string cutoff_date in the form YYYY-MM-DD"""
+        #cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
+
+        first_run, last_run = self.recency_runs(runs)
 
         first_run_days, last_run_days = None, None
 
@@ -217,13 +234,13 @@ class RetentionAnalysis():
 
         return first_run_days, last_run_days
 
-    def feature_frequency(self, game_id, user_id, cutoff_date, months):
+    def feature_frequency(self, runs, cutoff_datetime, months):
 
-        cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
+        #cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
 
         #load and filter runs
-        data = self.load_runs(game_id)
-        runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
+        #data = self.load_runs(game_id)
+        #runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
 
         #calculate total runs before T (lifetime frequency)
         lifetime_freq = len(runs)
@@ -244,6 +261,18 @@ class RetentionAnalysis():
             active_span = 1
         density = lifetime_freq/active_span
         return density
+
+    def feature_engagement_depth(self, runs):
+        #load runs and sort
+        #data = self.load_runs(game_id)
+        #cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
+        #runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
+
+        cats = set([run["category"] for run in runs])
+
+        num_cats = len(cats)
+
+        return num_cats
 
     def count_runs(self, game_id):
         count_runs = {}
@@ -369,12 +398,20 @@ game_id = ret.get_game_id(game)
 user_id = "o86w5pwx"
 cutoff_date = "2023-04-05"
 
-first_date, last_date = ret.feature_recency(game_id, user_id, cutoff_date)
-print (f"first_date, last_date: {first_date}, {last_date}")
+# first_run_days, last_run_days = ret.feature_recency(game_id, user_id, cutoff_date)
+# print (f"first_date, last_date: {first_run_days}, {last_run_days}")
 
-lifetime_freq, windowed_freq = ret.feature_frequency(game_id, user_id, cutoff_date, 3)
-print (f"lifetime_freq, windowed_freq: {lifetime_freq}, {windowed_freq}")
+# lifetime_freq, windowed_freq = ret.feature_frequency(game_id, user_id, cutoff_date, 3)
+# print (f"lifetime_freq, windowed_freq: {lifetime_freq}, {windowed_freq}")
 
+# density = ret.feature_density(lifetime_freq, first_run_days, last_run_days)
+# print (f"density: {density}")
+
+# num_cats = ret.feature_engagement_depth(game_id, user_id, cutoff_date)
+# print (f"num categories: {num_cats}")
+
+print ("all features: ")
+print (ret.features(game_id, user_id, cutoff_date, months=3))
 
 #print (ret.get_user("Lep"))
 
