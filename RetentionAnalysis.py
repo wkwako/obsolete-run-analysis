@@ -199,9 +199,15 @@ class RetentionAnalysis():
 
         return runs
 
-    def get_label(self, runs, cutoff_datetime, months):
+    def get_label(self, game_id, user_id, cutoff_date, months):
+        cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
+
+        #load runs
+        runs = self.load_runs(game_id, user_id)
+
         end_date = cutoff_datetime + dateutil.relativedelta.relativedelta(months=months)
         runs = [run for run in runs if cutoff_datetime <= datetime.datetime.fromisoformat(run["date"]) <= end_date]
+        runs.sort(key=lambda run: run["date"])
         if runs:
             return True
 
@@ -403,23 +409,14 @@ game = "Hollow Knight"
 #ret.get_runs(game)
 
 game_id = ret.get_game_id(game)
-user_id = "o86w5pwx"
+user = "Lep"
+user_id, user = ret.get_user(user)
 cutoff_date = "2023-04-05"
-
-# first_run_days, last_run_days = ret.feature_recency(game_id, user_id, cutoff_date)
-# print (f"first_date, last_date: {first_run_days}, {last_run_days}")
-
-# lifetime_freq, windowed_freq = ret.feature_frequency(game_id, user_id, cutoff_date, 3)
-# print (f"lifetime_freq, windowed_freq: {lifetime_freq}, {windowed_freq}")
-
-# density = ret.feature_density(lifetime_freq, first_run_days, last_run_days)
-# print (f"density: {density}")
-
-# num_cats = ret.feature_engagement_depth(game_id, user_id, cutoff_date)
-# print (f"num categories: {num_cats}")
 
 print ("all features: ")
 print (ret.features(game_id, user_id, cutoff_date, months=3))
+
+print (f"label: {ret.get_label(game_id, user_id, cutoff_date, months=12)}")
 
 #print (ret.get_user("Lep"))
 
