@@ -171,7 +171,7 @@ class RetentionAnalysis():
 
         return first_run, last_run
 
-    def load_runs(self, game_id):
+    def load_runs(self, game_id, user_id):
         #identify correct file
         path = os.path.join("run_data", f"runs_{game_id}.json")
 
@@ -183,15 +183,15 @@ class RetentionAnalysis():
         with open(path) as file:
             data = json.load(file)
 
-        return data
-
-    def sort_and_filter_runs(self, data, game_id, user_id, cutoff_datetime):
-        """Pulls runs with game_id and user_id before or equal to cutoff_datetime.
-           Use after load_runs()."""
-
         runs = []
         for category in data[game_id][user_id].keys():
             runs.extend(data[game_id][user_id][category])
+
+        return runs
+ 
+    def sort_and_filter_runs(self, runs, cutoff_datetime):
+        """Pulls runs with game_id and user_id before or equal to cutoff_datetime.
+           Use after load_runs()."""
 
         runs = [run for run in runs if datetime.datetime.fromisoformat(run["date"]) < cutoff_datetime]
 
@@ -199,12 +199,20 @@ class RetentionAnalysis():
 
         return runs
 
+    def get_label(self, runs, cutoff_datetime, months):
+        end_date = cutoff_datetime + dateutil.relativedelta.relativedelta(months=months)
+        runs = [run for run in runs if cutoff_datetime <= datetime.datetime.fromisoformat(run["date"]) <= end_date]
+        if runs:
+            return True
+
+        return False
+
     def features(self, game_id, user_id, cutoff_date, months):
         cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
 
         #load and filter runs
-        data = self.load_runs(game_id)
-        runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
+        runs = self.load_runs(game_id, user_id)
+        runs = self.sort_and_filter_runs(runs, cutoff_datetime)
 
         first_run_days, last_run_days = self.feature_recency(runs, cutoff_datetime)
 
