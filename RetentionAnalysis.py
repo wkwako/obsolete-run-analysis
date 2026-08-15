@@ -158,7 +158,7 @@ class RetentionAnalysis():
         return cleaned_runs
 
     def recency_runs(self, runs):
-        """Expects a cutoff_datetime converted using datetime.datetime()"""
+        """Expects a sorted runs variable"""
 
         # data = self.load_runs(game_id)
         # runs = self.sort_and_filter_runs(data, game_id, user_id, cutoff_datetime)
@@ -199,26 +199,26 @@ class RetentionAnalysis():
 
         return runs
 
-    def get_label(self, game_id, user_id, cutoff_date, months):
-        cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
+    def get_label(self, runs):
+        #cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
 
         #load runs
-        runs = self.load_runs(game_id, user_id)
+        #runs = self.load_runs(game_id, user_id)
 
-        end_date = cutoff_datetime + dateutil.relativedelta.relativedelta(months=months)
-        runs = [run for run in runs if cutoff_datetime <= datetime.datetime.fromisoformat(run["date"]) <= end_date]
-        runs.sort(key=lambda run: run["date"])
+        # end_date = cutoff_datetime + dateutil.relativedelta.relativedelta(months=months)
+        # runs = [run for run in runs if cutoff_datetime <= datetime.datetime.fromisoformat(run["date"]) <= end_date]
+        # runs.sort(key=lambda run: run["date"])
         if runs:
-            return True
+            return 1
 
-        return False
+        return 0
 
-    def features(self, game_id, user_id, cutoff_date, months):
-        cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
+    def features(self, cutoff_datetime, months, runs):
+        #cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
 
         #load and filter runs
-        runs = self.load_runs(game_id, user_id)
-        runs = self.sort_and_filter_runs(runs, cutoff_datetime)
+        #runs = self.load_runs(game_id, user_id)
+        #runs = self.sort_and_filter_runs(runs, cutoff_datetime)
 
         first_run_days, last_run_days = self.feature_recency(runs, cutoff_datetime)
 
@@ -323,6 +323,65 @@ class RetentionAnalysis():
 
         print(buckets)
 
+    def generate_cutoffs(self, game_id, lookahead_window):
+
+        runs_path = os.path.join("run_data", f"runs_{game_id}.json")
+        if not os.path.isfile(runs_path):
+            print("Game data does not exist. Exiting...")
+            return []
+        with open(runs_path) as file:
+            data = json.load(file)
+            game = data[game_id]
+
+        all_dates = [run["date"] for user_dict in game.values() for cats in user_dict.values() for run in cats]
+
+        if not all_dates:
+            return []
+
+        start_year = int(min(all_dates)[:4])    # dates are YYYY-MM-DD strings
+
+        last_date = datetime.datetime.fromisoformat(max(all_dates))
+        ceiling   = last_date - dateutil.relativedelta.relativedelta(months=lookahead_window)
+        end_year  = ceiling.year
+
+        valid_datetimes = [datetime.datetime(year, 1, 1) for year in range(start_year, end_year+1)]
+
+        return valid_datetimes
+
+    def generate_table(self, game_id, cutoffs, lookahead_window, min_runs, freq_months):
+        runs_path = os.path.join("run_data", f"runs_{game_id}.json")
+        if not os.path.isfile(runs_path):
+            print("Game data does not exist. Exiting...")
+            return []
+        with open(runs_path) as file:
+            data = json.load(file)
+
+        rows = []
+
+        for user_id in data[game_id].keys():
+            runs = [run for cats in data[game_id][user_id].values() for run in cats]
+
+            if len(runs) < min_runs:
+                continue
+
+            for cutoff in cutoffs:
+                before = [run for run in runs if datetime.datetime.fromisoformat(run["date"]) < cutoff]
+                before.sort(key=lambda run: run["date"])
+
+                if len(before) < min_runs:
+                    continue
+
+                delta = dateutil.relativedelta.relativedelta(months=lookahead_window)
+                after = [run for run in runs if cutoff <= datetime.datetime.fromisoformat(run["date"]) <= (cutoff+delta)]
+                after.sort(key=lambda run: run["date"])
+
+                features = self.features(cutoff, freq_months, before)
+                label = self.get_label(after)
+
+                rows.append((user_id, cutoff, *features, label))
+
+        return rows
+
     def retention_diagnostic(self, game_id, cutoff_str, min_prior_runs=3, window_months=12):
         """
         Measures class balance for the retention label among qualifying runners.
@@ -412,11 +471,25 @@ game_id = ret.get_game_id(game)
 user = "Lep"
 user_id, user = ret.get_user(user)
 cutoff_date = "2023-04-05"
+lookahead_window = 12
 
-print ("all features: ")
-print (ret.features(game_id, user_id, cutoff_date, months=3))
+cutoffs = ret.generate_cutoffs(game_id, lookahead_window)
+#print (cutoffs)
 
-print (f"label: {ret.get_label(game_id, user_id, cutoff_date, months=12)}")
+#print (ret.get_user("v816rklx"))
+
+table = ret.generate_table(game_id, cutoffs, lookahead_window, min_runs=5, freq_months=3)
+
+
+#quick snippet of code to check class weights
+# count = 0
+# for item in table:
+#     #print (item)
+#     val = item[-1]
+#     if val == 1:
+#         count += 1
+
+# print (count/len(table))
 
 #print (ret.get_user("Lep"))
 
