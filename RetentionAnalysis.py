@@ -5,6 +5,7 @@ import os
 import json
 import datetime
 import dateutil
+import sqlite3
 
 #from datetime import date, timedelta
 
@@ -378,9 +379,49 @@ class RetentionAnalysis():
                 features = self.features(cutoff, freq_months, before)
                 label = self.get_label(after)
 
-                rows.append((user_id, cutoff, *features, label))
+                rows.append((game_id, user_id, cutoff, *features, label))
 
-        return rows
+
+        columns = ["game_id", "user_id", "cutoff", "first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats", "label"]
+        df = pd.DataFrame(rows, columns=columns)
+
+        self.save_to_db(df, game_id)
+
+        return df
+
+    def save_to_db(self, df, game_id):
+        conn = sqlite3.connect("retention_examples.db")
+        cur = conn.cursor()
+
+        # does the table exist yet? (first-ever run, it won't)
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='retention_examples'"
+        )
+        table_exists = cur.fetchone() is not None
+
+        # if it exists, clear out any prior rows for THIS game
+        if table_exists:
+            cur.execute("DELETE FROM retention_examples WHERE game_id = ?", (game_id,))
+            conn.commit()
+
+        # append the fresh rows for this game
+        df.to_sql("retention_examples", conn, if_exists="append", index=False)
+
+        conn.close()
+
+    def load_from_db(self):
+        conn = sqlite3.connect("retention_examples.db")
+        df = pd.read_sql("SELECT * FROM retention_examples", conn)
+        return df
+
+    def get_class_weights(self, table):
+        count = 0
+        for item in table:
+            val = item[-1]
+            if val == 1:
+                count += 1
+
+        print (f"{count/len(table)} percent positive examples")
 
     def retention_diagnostic(self, game_id, cutoff_str, min_prior_runs=3, window_months=12):
         """
@@ -474,23 +515,11 @@ cutoff_date = "2023-04-05"
 lookahead_window = 12
 
 cutoffs = ret.generate_cutoffs(game_id, lookahead_window)
-#print (cutoffs)
-
-#print (ret.get_user("v816rklx"))
 
 table = ret.generate_table(game_id, cutoffs, lookahead_window, min_runs=5, freq_months=3)
 
+df = ret.load_from_db()
+print (df.shape)
 
-#quick snippet of code to check class weights
-# count = 0
-# for item in table:
-#     #print (item)
-#     val = item[-1]
-#     if val == 1:
-#         count += 1
-
-# print (count/len(table))
-
-#print (ret.get_user("Lep"))
 
 #ret.retention_diagnostic(game_id, "2022-01-01", min_prior_runs=5, window_months=12)
