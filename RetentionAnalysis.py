@@ -343,9 +343,16 @@ class RetentionAnalysis():
 
         last_date = datetime.datetime.fromisoformat(max(all_dates))
         ceiling   = last_date - dateutil.relativedelta.relativedelta(months=lookahead_window)
-        end_year  = ceiling.year
+        #end_year  = ceiling.year
 
-        valid_datetimes = [datetime.datetime(year, 1, 1) for year in range(start_year, end_year+1)]
+        delta = dateutil.relativedelta.relativedelta(months=6)
+        cur_date = datetime.datetime(start_year, 1, 1)
+        valid_datetimes = []
+        while cur_date <= ceiling:
+            valid_datetimes.append(cur_date)
+            cur_date += delta
+
+        #valid_datetimes = [datetime.datetime(year, 1, 1) for year in range(start_year, end_year+1)]
 
         return valid_datetimes
 
@@ -389,6 +396,33 @@ class RetentionAnalysis():
 
         return df
 
+    def split(self, game_id, p_break):
+        
+        #load only for a single game
+        df = self.load_from_db(game_id)
+
+        counts_sorted, total = self.cutoff_diagnostic(df)
+
+        B = self.build_B(counts_sorted, total, p_break)
+
+        #get rows where cutoff < B (train_set)
+        train = df[df["cutoff"] < B]
+
+        #get rows where cutoff >= B (test_set)
+        test = df[df["cutoff"] >= B]
+
+        #if user_id appears in both, move rows with that user_id from test_set to train_set
+        both = set(train["user_id"]) & set(test["user_id"])
+        mask = test["user_id"].isin(both)
+        to_move = test[mask]
+        train = pd.concat([train, to_move])
+        test = test[~mask]
+
+        #print (train["label"].mean())
+        #print (test["label"].mean())
+
+        return (train, test)
+
     def save_to_db(self, df, game_id):
         conn = sqlite3.connect("retention_examples.db")
         cur = conn.cursor()
@@ -409,9 +443,14 @@ class RetentionAnalysis():
 
         conn.close()
 
-    def load_from_db(self):
+    def load_from_db(self, game_id=None):
         conn = sqlite3.connect("retention_examples.db")
-        df = pd.read_sql("SELECT * FROM retention_examples", conn)
+        if not game_id:
+            df = pd.read_sql("SELECT * FROM retention_examples", conn)
+
+        else:
+            df = pd.read_sql("SELECT * FROM retention_examples WHERE game_id = ?", conn, params=(game_id,))
+
         return df
 
     def get_class_weights(self, table):
@@ -422,6 +461,28 @@ class RetentionAnalysis():
                 count += 1
 
         print (f"{count/len(table)} percent positive examples")
+
+    def cutoff_diagnostic(self, table):
+        counts = {}
+        total = 0
+        for date in table["cutoff"]:
+            counts[date] = counts.get(date, 0) + 1
+            total += 1
+
+        counts_sorted = dict(sorted(counts.items()))
+        return (counts_sorted, total)
+
+    def build_B(self, counts_sorted, total, p_break):
+        n_so_far = 0
+        B = None
+
+        for key, val in counts_sorted.items():
+            n_so_far += val
+            if (n_so_far/total) >= p_break:
+                B = key
+                break
+
+        return B
 
     def retention_diagnostic(self, game_id, cutoff_str, min_prior_runs=3, window_months=12):
         """
@@ -517,9 +578,15 @@ lookahead_window = 12
 cutoffs = ret.generate_cutoffs(game_id, lookahead_window)
 
 table = ret.generate_table(game_id, cutoffs, lookahead_window, min_runs=5, freq_months=3)
+#print (table)
 
-df = ret.load_from_db()
-print (df.shape)
+# counts_sorted, total = ret.cutoff_diagnostic(table)
+# print (counts_sorted, total)
+
+# B = ret.build_B(counts_sorted, total, p_break=0.70)
+# print (B)
+
+results = ret.split(game_id, p_break=0.50)
 
 
 #ret.retention_diagnostic(game_id, "2022-01-01", min_prior_runs=5, window_months=12)
