@@ -7,6 +7,10 @@ import datetime
 import dateutil
 import sqlite3
 
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import roc_auc_score
+
 #from datetime import date, timedelta
 
 class RetentionAnalysis():
@@ -423,6 +427,13 @@ class RetentionAnalysis():
 
         return (train, test)
 
+    def prep_train_test(self, train, test):
+        feature_columns = ["first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats"]
+        X_train, y_train = train[feature_columns], train["label"]
+        X_test, y_test = test[feature_columns], test["label"]
+
+        return (X_train, y_train, X_test, y_test)
+
     def save_to_db(self, df, game_id):
         conn = sqlite3.connect("retention_examples.db")
         cur = conn.cursor()
@@ -483,6 +494,18 @@ class RetentionAnalysis():
                 break
 
         return B
+
+    def AUC(self, X_train, y_train, X_test, y_test, columns):
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train[columns])
+        X_test_scaled  = scaler.transform(X_test[columns])
+
+        model = LogisticRegression()
+        model.fit(X_train_scaled, y_train)
+
+        probs = model.predict_proba(X_test_scaled)[:, 1]
+        auc = roc_auc_score(y_test, probs)
+        print(f"AUC: {auc}")
 
     def retention_diagnostic(self, game_id, cutoff_str, min_prior_runs=3, window_months=12):
         """
@@ -586,7 +609,19 @@ table = ret.generate_table(game_id, cutoffs, lookahead_window, min_runs=5, freq_
 # B = ret.build_B(counts_sorted, total, p_break=0.70)
 # print (B)
 
-results = ret.split(game_id, p_break=0.50)
+train, test = ret.split(game_id, p_break=0.50)
+
+X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
+
+columns = ["first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats"]
+recency_columns = ["first_run_days", "last_run_days"]
+ret.AUC(X_train, y_train, X_test, y_test, columns)
+
+
+
+#checks for bad data
+#print (X_train.isna().sum())
+
 
 
 #ret.retention_diagnostic(game_id, "2022-01-01", min_prior_runs=5, window_months=12)
