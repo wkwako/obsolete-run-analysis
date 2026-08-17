@@ -228,6 +228,8 @@ class RetentionAnalysis():
 
         num_cats = self.feature_engagement_depth(runs)
 
+        #cv = self.feature_consistency(runs)
+
         return first_run_days, last_run_days, lifetime_freq, windowed_freq, density, num_cats
 
     def feature_recency(self, runs, cutoff_datetime):
@@ -288,26 +290,16 @@ class RetentionAnalysis():
 
         return num_cats
 
-    # def get_wr_at_date(self, game_id, date):
-    #     runs_path = os.path.join("run_data", f"runs_{game_id}.json")
-    #     if not os.path.isfile(runs_path):
-    #         print("Game data does not exist. Exiting...")
-    #         return []
-    #     with open(runs_path) as file:
-    #         data = json.load(file)
-    #         game = data[game_id]
+    def feature_consistency(self, runs):
+        days = [datetime.datetime.fromisoformat(run["date"]).toordinal() for run in runs]
+        gaps = np.diff(days)
 
-    #     min_time = np.inf
-    #     for user_dict in game.values():
-    #         for cats in user_dict.values():
-    #             for run in cats:
-    #                 run_dt = datetime.datetime.fromisoformat(run["date"])
-    #                 if run_dt < date:
-    #                     time = run["times"]["realtime_t"]
-    #                     if time < min_time:
-    #                         min_time = time
+        if len(gaps) == 0 or gaps.mean() == 0:
+            return None
 
-    #     return min_time
+        cv = gaps.std() / gaps.mean()
+
+        return cv
 
     def count_runs(self, game_id):
         count_runs = {}
@@ -407,7 +399,6 @@ class RetentionAnalysis():
                 label = self.get_label(after)
 
                 rows.append((game_id, user_id, cutoff, *features, label))
-
 
         columns = ["game_id", "user_id", "cutoff", "first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats", "label"]
         df = pd.DataFrame(rows, columns=columns)
@@ -527,12 +518,16 @@ class RetentionAnalysis():
 
     def load_from_db(self, game_id=None):
         conn = sqlite3.connect("retention_examples.db")
-        if not game_id:
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='retention_examples'")
+        if cur.fetchone() is None:
+            conn.close()
+            return pd.DataFrame()          # no table yet → empty frame
+        if game_id is None:
             df = pd.read_sql("SELECT * FROM retention_examples", conn)
-
         else:
             df = pd.read_sql("SELECT * FROM retention_examples WHERE game_id = ?", conn, params=(game_id,))
-
+        conn.close()
         return df
 
     def build_db_entry(self, game, game_id, lookahead_window, min_runs, freq_months):
@@ -712,14 +707,13 @@ class RetentionAnalysis():
 #lookahead_window = 12
 
 ret = RetentionAnalysis()
-game = "Hollow Knight"
+game = "Super Metroid"
 game_id = ret.get_game_id(game)
 ret.build_db_entry(game, game_id, lookahead_window=12, min_runs=5, freq_months=3)
-
 train, test = ret.split(game_id, p_break=0.50, all_games=False)
 X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
-
 ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
 ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
+
 
 #ret.retention_diagnostic(game_id, "2022-01-01", min_prior_runs=5, window_months=12)
