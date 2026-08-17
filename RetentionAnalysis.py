@@ -8,8 +8,11 @@ import dateutil
 import sqlite3
 
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
+
+from sklearn.base import clone
 
 #from datetime import date, timedelta
 
@@ -156,7 +159,7 @@ class RetentionAnalysis():
             elif category_id not in cleaned_runs[game_id][user_id]:
                 cleaned_runs[game_id][user_id][category_id] = [run]
 
-            #only run doesn't exist
+            #run doesn't exist
             else:
                 cleaned_runs[game_id][user_id][category_id].append(run)
 
@@ -205,14 +208,6 @@ class RetentionAnalysis():
         return runs
 
     def get_label(self, runs):
-        #cutoff_datetime = datetime.datetime.fromisoformat(cutoff_date)
-
-        #load runs
-        #runs = self.load_runs(game_id, user_id)
-
-        # end_date = cutoff_datetime + dateutil.relativedelta.relativedelta(months=months)
-        # runs = [run for run in runs if cutoff_datetime <= datetime.datetime.fromisoformat(run["date"]) <= end_date]
-        # runs.sort(key=lambda run: run["date"])
         if runs:
             return 1
 
@@ -292,6 +287,27 @@ class RetentionAnalysis():
         num_cats = len(cats)
 
         return num_cats
+
+    # def get_wr_at_date(self, game_id, date):
+    #     runs_path = os.path.join("run_data", f"runs_{game_id}.json")
+    #     if not os.path.isfile(runs_path):
+    #         print("Game data does not exist. Exiting...")
+    #         return []
+    #     with open(runs_path) as file:
+    #         data = json.load(file)
+    #         game = data[game_id]
+
+    #     min_time = np.inf
+    #     for user_dict in game.values():
+    #         for cats in user_dict.values():
+    #             for run in cats:
+    #                 run_dt = datetime.datetime.fromisoformat(run["date"])
+    #                 if run_dt < date:
+    #                     time = run["times"]["realtime_t"]
+    #                     if time < min_time:
+    #                         min_time = time
+
+    #     return min_time
 
     def count_runs(self, game_id):
         count_runs = {}
@@ -400,32 +416,87 @@ class RetentionAnalysis():
 
         return df
 
-    def split(self, game_id, p_break):
+    # def split(self, game, game_id, p_break, lookahead_window, min_runs, freq_months):
         
-        #load only for a single game
-        df = self.load_from_db(game_id)
+    #     #load only for a single game
+    #     #df = self.load_from_db(game_id)
 
+    #     df = self.get_or_build(game, game_id, lookahead_window, min_runs, freq_months)
+
+    #     counts_sorted, total = self.cutoff_diagnostic(df)
+
+    #     B = self.build_B(counts_sorted, total, p_break)
+
+    #     #get rows where cutoff < B (train_set)
+    #     train = df[df["cutoff"] < B]
+
+    #     #get rows where cutoff >= B (test_set)
+    #     test = df[df["cutoff"] >= B]
+
+    #     #if user_id appears in both, move rows with that user_id from test_set to train_set
+    #     both = set(train["user_id"]) & set(test["user_id"])
+    #     mask = test["user_id"].isin(both)
+    #     to_move = test[mask]
+    #     train = pd.concat([train, to_move])
+    #     test = test[~mask]
+
+    #     #print (train["label"].mean())
+    #     #print (test["label"].mean())
+
+    #     return (train, test)
+
+    def split_one_game(self, df, p_break):
+        """Temporal + grouped split for a single game's dataframe.
+        Returns (train, test) with straddlers moved to train."""
         counts_sorted, total = self.cutoff_diagnostic(df)
-
         B = self.build_B(counts_sorted, total, p_break)
 
-        #get rows where cutoff < B (train_set)
         train = df[df["cutoff"] < B]
+        test  = df[df["cutoff"] >= B]
 
-        #get rows where cutoff >= B (test_set)
-        test = df[df["cutoff"] >= B]
-
-        #if user_id appears in both, move rows with that user_id from test_set to train_set
+        # move within-game straddlers to train
         both = set(train["user_id"]) & set(test["user_id"])
-        mask = test["user_id"].isin(both)
-        to_move = test[mask]
+        to_move = test[test["user_id"].isin(both)]
         train = pd.concat([train, to_move])
-        test = test[~mask]
+        test  = test[~test["user_id"].isin(both)]
 
-        #print (train["label"].mean())
-        #print (test["label"].mean())
+        return train, test
 
-        return (train, test)
+    def split(self, game_id, p_break, all_games=False):
+        if not all_games:
+            df = self.load_from_db(game_id)
+            train, test = self.split_one_game(df, p_break)
+        else:
+            df_all = self.load_from_db()          # no game_id → all games
+            trains, tests = [], []
+            for gid in df_all["game_id"].unique():
+                game_df = df_all[df_all["game_id"] == gid]
+                g_train, g_test = self.split_one_game(game_df, p_break)
+                trains.append(g_train)
+                tests.append(g_test)
+
+            train = pd.concat(trains)
+            test  = pd.concat(tests)
+
+            # --- cross-game straddler fix ---
+            # a runner may be train in one game but test in another; force them all to train
+            both = set(train["user_id"]) & set(test["user_id"])
+            to_move = test[test["user_id"].isin(both)]
+            train = pd.concat([train, to_move])
+            test  = test[~test["user_id"].isin(both)]
+
+        # reset indices after all the concatenation
+        train = train.reset_index(drop=True)
+        test  = test.reset_index(drop=True)
+
+        # guardrail: no runner in both sets, ever
+        assert set(train["user_id"]).isdisjoint(set(test["user_id"])), "runner in both train and test!"
+
+        # sanity check
+        print(f"train: {len(train)} rows, {train['label'].mean():.3f} positive")
+        print(f"test:  {len(test)} rows, {test['label'].mean():.3f} positive")
+
+        return train, test
 
     def prep_train_test(self, train, test):
         feature_columns = ["first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats"]
@@ -464,6 +535,32 @@ class RetentionAnalysis():
 
         return df
 
+    def build_db_entry(self, game, game_id, lookahead_window, min_runs, freq_months):
+        df = self.load_from_db(game_id)
+
+        if not df.empty:
+            print ("Game data already exists.")
+            return df
+
+        self.get_runs(game)
+        cutoffs = self.generate_cutoffs(game_id, lookahead_window)
+        table = self.generate_table(game_id, cutoffs, lookahead_window, min_runs, freq_months)
+        self.save_to_db(table, game_id)
+        df = self.load_from_db(game_id)
+        return df
+
+    def get_or_build(self, game, game_id, lookahead_window, min_runs, freq_months):
+        df = self.load_from_db(game_id)
+
+        #not in db, fetch the information
+        if df.empty:
+            self.get_runs(game)
+            cutoffs = self.generate_cutoffs(game_id, lookahead_window)
+            table = self.generate_table(game_id, cutoffs, lookahead_window, min_runs, freq_months)
+            self.save_to_db(table, game_id)
+            df = self.load_from_db(game_id)
+        return df
+
     def get_class_weights(self, table):
         count = 0
         for item in table:
@@ -495,17 +592,32 @@ class RetentionAnalysis():
 
         return B
 
-    def AUC(self, X_train, y_train, X_test, y_test, columns):
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train[columns])
-        X_test_scaled  = scaler.transform(X_test[columns])
+    def AUC(self, X_train, y_train, X_test, y_test, model=None, scale=True):
+        if model is None:
+            model = LogisticRegression()
 
-        model = LogisticRegression()
-        model.fit(X_train_scaled, y_train)
+        recency_cols = ["first_run_days", "last_run_days"]
 
-        probs = model.predict_proba(X_test_scaled)[:, 1]
-        auc = roc_auc_score(y_test, probs)
-        print(f"AUC: {auc}")
+        def run(train_cols):
+            Xtr = X_train[train_cols]
+            Xte = X_test[train_cols]
+
+            if scale:
+                scaler = StandardScaler()
+                Xtr = scaler.fit_transform(Xtr)
+                Xte = scaler.transform(Xte)
+
+            m = clone(model)          # fresh, unfitted copy each call
+            m.fit(Xtr, y_train)
+            probs = m.predict_proba(Xte)[:, 1]
+            return roc_auc_score(y_test, probs)
+
+        auc_recency = run(recency_cols)
+        auc_full = run(list(X_train.columns))
+
+        print(f"recency-only AUC: {auc_recency:.4f}")
+        print(f"full AUC:         {auc_full:.4f}")
+        return auc_recency, auc_full
 
     def retention_diagnostic(self, game_id, cutoff_str, min_prior_runs=3, window_months=12):
         """
@@ -588,40 +700,26 @@ class RetentionAnalysis():
 
         return {"qualifying": qualifying, "retained": retained, "churned": churned}
 
-ret = RetentionAnalysis()
-game = "Hollow Knight"
+#ret = RetentionAnalysis()
+#game = "Hollow Knight"
 #ret.get_runs(game)
 
+#game_id = ret.get_game_id(game)
+#print (game_id)
+#user = "Lep"
+#user_id, user = ret.get_user(user)
+#cutoff_date = "2023-04-05"
+#lookahead_window = 12
+
+ret = RetentionAnalysis()
+game = "Hollow Knight"
 game_id = ret.get_game_id(game)
-user = "Lep"
-user_id, user = ret.get_user(user)
-cutoff_date = "2023-04-05"
-lookahead_window = 12
+ret.build_db_entry(game, game_id, lookahead_window=12, min_runs=5, freq_months=3)
 
-cutoffs = ret.generate_cutoffs(game_id, lookahead_window)
-
-table = ret.generate_table(game_id, cutoffs, lookahead_window, min_runs=5, freq_months=3)
-#print (table)
-
-# counts_sorted, total = ret.cutoff_diagnostic(table)
-# print (counts_sorted, total)
-
-# B = ret.build_B(counts_sorted, total, p_break=0.70)
-# print (B)
-
-train, test = ret.split(game_id, p_break=0.50)
-
+train, test = ret.split(game_id, p_break=0.50, all_games=False)
 X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
 
-columns = ["first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats"]
-recency_columns = ["first_run_days", "last_run_days"]
-ret.AUC(X_train, y_train, X_test, y_test, columns)
-
-
-
-#checks for bad data
-#print (X_train.isna().sum())
-
-
+ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
+ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
 
 #ret.retention_diagnostic(game_id, "2022-01-01", min_prior_runs=5, window_months=12)
