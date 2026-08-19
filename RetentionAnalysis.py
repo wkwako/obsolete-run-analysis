@@ -15,6 +15,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.base import clone
 
 import diagnostics
+import retention_mlp
 
 class Repository():
     def save_to_db(self, df, game_id):
@@ -225,7 +226,7 @@ class RetentionAnalysis():
             print ("Game data already exists.")
             return df
 
-        self.ret_analysis.get_runs(game)
+        self.get_runs(game)
         cutoffs = self.generate_cutoffs(game_id, lookahead_window)
         table = self.generate_table(game_id, cutoffs, lookahead_window, min_runs, freq_months)
         self.repo.save_to_db(table, game_id)
@@ -655,13 +656,17 @@ class RetentionAnalysis():
 
 ret = RetentionAnalysis()
 repo = Repository()
-game = "Destiny 2"
+game = "Hollow Knight"
 game_id = ret.get_game_id(game)
 ret.build_db_entry(game, game_id, lookahead_window=12, min_runs=5, freq_months=3)
 train, test = ret.split(game_id, p_break=0.50, all_games=False)
 X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
-ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
-ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
+# ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
+# ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
+
+retention_mlp.train_mlp(X_train, y_train, X_test, y_test, feature_cols=["first_run_days", "last_run_days"])
+retention_mlp.train_mlp(X_train, y_train, X_test, y_test)
+
 
 
 #data = ret.load_run_data(game_id)
