@@ -642,7 +642,6 @@ class RetentionAnalysis():
         print(f"full AUC:         {auc_full:.4f}")
         return auc_recency, auc_full
 
-
 #ret = RetentionAnalysis()
 #game = "Hollow Knight"
 #ret.get_runs(game)
