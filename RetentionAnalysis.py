@@ -676,21 +676,23 @@ class RetentionAnalysis():
 
 ret = RetentionAnalysis()
 repo = Repository()
-game = "Hollow Knight"
+game = "Destiny 2"
 game_id = ret.get_game_id(game)
 ret.build_db_entry(game, game_id, lookahead_window=12, min_runs=5, freq_months=3)
 train, test = ret.split(game_id, p_break=0.50, all_games=False)
 X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
 
-print ("----SKEARLN MANUAL LOG-REGRESSION----")
+print ("----SKLEARN MANUAL LINEAR-REGRESSION----")
 ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
 
-print ("----SKEARLN MANUAL GRADIENT BOOSTING----")
+print ("----SKLEARN MANUAL GRADIENT BOOSTING----")
 ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
 
 print ("----CROSS VALIDATION----")
 print (ret.cross_validate(game_id))
 
 print ("----NEURAL NET----")
+print ("NN Recency: ")
 retention_mlp.train_mlp(X_train, y_train, X_test, y_test, feature_cols=["first_run_days", "last_run_days"])
+print ("NN All Features")
 retention_mlp.train_mlp(X_train, y_train, X_test, y_test)
