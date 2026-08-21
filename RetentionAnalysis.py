@@ -11,6 +11,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import GroupKFold, cross_val_score
 
 from sklearn.base import clone
 
@@ -612,6 +614,24 @@ class RetentionAnalysis():
 
         return B
 
+    def cross_validate(self, game_id):
+        df = self.repo.load_from_db(game_id)
+        feature_cols = ["first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats"]
+        X = df[feature_cols]
+        y = df["label"]
+        groups = df["user_id"]
+
+        pipe = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", LogisticRegression()),
+        ])
+
+        gfk = GroupKFold(n_splits=5)
+
+        scores = cross_val_score(pipe, X, y, groups=groups, cv=gfk, scoring="roc_auc")
+
+        print(f"AUC: {scores.mean():.4f} ± {scores.std():.4f}")
+
     def AUC(self, X_train, y_train, X_test, y_test, model=None, scale=True):
         """Given train and test sets, trains a model and returns the AUC.
            Returns the recency AUC and the full AUC."""
@@ -661,13 +681,16 @@ game_id = ret.get_game_id(game)
 ret.build_db_entry(game, game_id, lookahead_window=12, min_runs=5, freq_months=3)
 train, test = ret.split(game_id, p_break=0.50, all_games=False)
 X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
-# ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
-# ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
 
+print ("----SKEARLN MANUAL LOG-REGRESSION----")
+ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
+
+print ("----SKEARLN MANUAL GRADIENT BOOSTING----")
+ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
+
+print ("----CROSS VALIDATION----")
+print (ret.cross_validate(game_id))
+
+print ("----NEURAL NET----")
 retention_mlp.train_mlp(X_train, y_train, X_test, y_test, feature_cols=["first_run_days", "last_run_days"])
 retention_mlp.train_mlp(X_train, y_train, X_test, y_test)
-
-
-
-#data = ret.load_run_data(game_id)
-#diagnostics.count_runs(game_id, data)
