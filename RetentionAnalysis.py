@@ -716,7 +716,7 @@ class RetentionAnalysis():
 
 ret = RetentionAnalysis()
 repo = Repository()
-game = "Super Metroid"
+game = "Hollow Knight"
 #ret.run_all_models(game)
 
 ret.plot_feature_importance(game, save_path=f"images/fi_{game}.png")
