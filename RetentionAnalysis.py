@@ -563,18 +563,6 @@ class RetentionAnalysis():
 
         return (X_train, y_train, X_test, y_test)
 
-    # def get_or_build(self, game, game_id, lookahead_window, min_runs, freq_months):
-    #     df = self.load_from_db(game_id)
-
-    #     #not in db, fetch the information
-    #     if df.empty:
-    #         self.get_runs(game)
-    #         cutoffs = self.generate_cutoffs(game_id, lookahead_window)
-    #         table = self.generate_table(game_id, cutoffs, lookahead_window, min_runs, freq_months)
-    #         self.save_to_db(table, game_id)
-    #         df = self.load_from_db(game_id)
-    #     return df
-
     def get_class_weights(self, df):
         "Used for debugging. Given a df, returns the percentage of positive examples."
         count = 0
@@ -663,26 +651,15 @@ class RetentionAnalysis():
         print(f"full AUC:         {auc_full:.4f}")
         return auc_recency, auc_full
 
-#ret = RetentionAnalysis()
-#game = "Hollow Knight"
-#ret.get_runs(game)
-
-#game_id = ret.get_game_id(game)
-#print (game_id)
-#user = "Lep"
-#user_id, user = ret.get_user(user)
-#cutoff_date = "2023-04-05"
-#lookahead_window = 12
-
 ret = RetentionAnalysis()
 repo = Repository()
-game = "Destiny 2"
+game = "Hollow Knight"
 game_id = ret.get_game_id(game)
 ret.build_db_entry(game, game_id, lookahead_window=12, min_runs=5, freq_months=3)
 train, test = ret.split(game_id, p_break=0.50, all_games=False)
 X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
 
-print ("----SKLEARN MANUAL LINEAR-REGRESSION----")
+print ("----SKLEARN MANUAL LOGISTIC-REGRESSION----")
 ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
 
 print ("----SKLEARN MANUAL GRADIENT BOOSTING----")

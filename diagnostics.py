@@ -26,6 +26,24 @@ def count_runs(game_id, data):
 
     print(buckets)
 
+def describe_game(self, game_id):
+    """Quick diagnostic: size and balance of a game's examples table."""
+    df = self.repo.load_from_db(game_id)
+
+    if df.empty:
+        print(f"No data for game {game_id}")
+        return
+
+    print(f"--- {game_id} ---")
+    print(f"total examples:     {len(df)}")
+    print(f"distinct runners:   {df['user_id'].nunique()}")
+    print(f"class balance:      {df['label'].mean():.3f} retained")
+
+    # examples-per-cutoff, to see where the data concentrates
+    per_cutoff = df.groupby("cutoff").size()
+    print(f"cutoffs:            {len(per_cutoff)}")
+    print(f"examples per cutoff:\n{per_cutoff}")
+
 def retention_diagnostic(data, game_id, cutoff_str, min_prior_runs=3, window_months=12):
     """
     Measures class balance for the retention label among qualifying runners.
