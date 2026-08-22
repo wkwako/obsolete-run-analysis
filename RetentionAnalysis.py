@@ -6,6 +6,7 @@ import json
 import datetime
 import dateutil
 import sqlite3
+import matplotlib.pyplot as plt
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import GradientBoostingClassifier
@@ -298,9 +299,9 @@ class RetentionAnalysis():
 
         num_cats = self.feature_engagement_depth(runs)
 
-        #cv = self.feature_consistency(runs)
+        consistency = self.feature_consistency(runs)
 
-        return (first_run_days, last_run_days, lifetime_freq, windowed_freq, density, num_cats)
+        return (first_run_days, last_run_days, lifetime_freq, windowed_freq, density, num_cats, consistency)
 
     def feature_recency(self, runs, cutoff_datetime):
         """Given a list of runs and a datetime cutoff, returns the number of days
@@ -370,9 +371,9 @@ class RetentionAnalysis():
         if len(gaps) == 0 or gaps.mean() == 0:
             return None
 
-        cv = gaps.std() / gaps.mean()
+        consistency = gaps.std() / gaps.mean()
 
-        return cv
+        return consistency
 
     def generate_cutoffs(self, game_id, lookahead_window, diff=6):
         """Given a game_id, a lookahead window, and a distance between dates (diff),
@@ -447,7 +448,7 @@ class RetentionAnalysis():
                 rows.append((game_id, user_id, cutoff, *features, label))
 
         #define columns
-        columns = ["game_id", "user_id", "cutoff", "first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats", "label"]
+        columns = ["game_id", "user_id", "cutoff", "first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats", "consistency", "label"]
         df = pd.DataFrame(rows, columns=columns)
 
         #save to the db
@@ -557,7 +558,7 @@ class RetentionAnalysis():
     def prep_train_test(self, train, test):
         """Given train and test data, splits the data into X train, y train,
            X test, and y test sets."""
-        feature_columns = ["first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats"]
+        feature_columns = ["first_run_days", "last_run_days", "lifetime_freq", "windowed_freq", "density", "num_cats", "consistency"]
         X_train, y_train = train[feature_columns], train["label"]
         X_test, y_test = test[feature_columns], test["label"]
 
@@ -651,25 +652,71 @@ class RetentionAnalysis():
         print(f"full AUC:         {auc_full:.4f}")
         return auc_recency, auc_full
 
+    def run_all_models(self, game, lookahead_window=12, min_runs=5, freq_months=3, p_break=0.50):
+        game_id = ret.get_game_id(game)
+        ret.build_db_entry(game, game_id, lookahead_window=lookahead_window, min_runs=min_runs, freq_months=freq_months)
+        train, test = ret.split(game_id, p_break=p_break, all_games=False)
+        X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
+
+        print ("----SKLEARN MANUAL LOGISTIC-REGRESSION----")
+        ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
+
+        print ("----SKLEARN MANUAL GRADIENT BOOSTING----")
+        ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
+
+        print ("----CROSS VALIDATION----")
+        print (ret.cross_validate(game_id))
+
+        print ("----NEURAL NET----")
+        print ("NN Recency: ")
+        retention_mlp.train_mlp(X_train, y_train, X_test, y_test, feature_cols=["first_run_days", "last_run_days"])
+        print ("NN All Features")
+        retention_mlp.train_mlp(X_train, y_train, X_test, y_test)
+
+    def plot_feature_importance(self, game, lookahead_window=12, min_runs=5,
+                            freq_months=3, p_break=0.50, save_path=None):
+        """Train a GB model on a game and plot its feature importances."""
+        game_id = self.get_game_id(game)
+        self.build_db_entry(game, game_id, lookahead_window=lookahead_window,
+                            min_runs=min_runs, freq_months=freq_months)
+        train, test = self.split(game_id, p_break=p_break, all_games=False)
+        X_train, y_train, X_test, y_test = self.prep_train_test(train, test)
+
+        feature_cols = list(X_train.columns)
+
+        gb = GradientBoostingClassifier(random_state=1)
+        gb.fit(X_train, y_train)                    # GB needs no scaling
+
+        importances = gb.feature_importances_
+        order = importances.argsort()
+        names_sorted = [feature_cols[i] for i in order]
+        vals_sorted = importances[order]
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        bars = ax.barh(names_sorted, vals_sorted, color="#4C72B0")
+
+        recency = {"first_run_days", "last_run_days"}
+        for bar, name in zip(bars, names_sorted):
+            if name in recency:
+                bar.set_color("#DD8452")
+
+        ax.set_xlabel("Feature importance")
+        ax.set_title(f"Gradient Boosting Feature Importance — {game}")
+        for bar, val in zip(bars, vals_sorted):
+            ax.text(val + 0.005, bar.get_y() + bar.get_height()/2,
+                    f"{val:.3f}", va="center", fontsize=9)
+
+        ax.set_xlim(0, max(vals_sorted) * 1.15)
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches="tight")
+            print(f"saved to {save_path}")
+        plt.show()
+        return gb
+
 ret = RetentionAnalysis()
 repo = Repository()
-game = "Hollow Knight"
-game_id = ret.get_game_id(game)
-ret.build_db_entry(game, game_id, lookahead_window=12, min_runs=5, freq_months=3)
-train, test = ret.split(game_id, p_break=0.50, all_games=False)
-X_train, y_train, X_test, y_test = ret.prep_train_test(train, test)
+game = "Super Metroid"
+#ret.run_all_models(game)
 
-print ("----SKLEARN MANUAL LOGISTIC-REGRESSION----")
-ret.AUC(X_train, y_train, X_test, y_test, LogisticRegression(), scale=True)
-
-print ("----SKLEARN MANUAL GRADIENT BOOSTING----")
-ret.AUC(X_train, y_train, X_test, y_test, GradientBoostingClassifier(random_state=1), scale=False)
-
-print ("----CROSS VALIDATION----")
-print (ret.cross_validate(game_id))
-
-print ("----NEURAL NET----")
-print ("NN Recency: ")
-retention_mlp.train_mlp(X_train, y_train, X_test, y_test, feature_cols=["first_run_days", "last_run_days"])
-print ("NN All Features")
-retention_mlp.train_mlp(X_train, y_train, X_test, y_test)
+ret.plot_feature_importance(game, save_path=f"images/fi_{game}.png")

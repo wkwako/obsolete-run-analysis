@@ -1,6 +1,6 @@
 # Description
 
-The goal of this project is to use data from speedrun.com's API to predict speedrunner retention rates across games, using known ML techniques with a novel domain. The retention rate is defined as how likely a runner is to continue submitting runs, given a particular game and category. We perform the analysis with several models: sklearn's logistic regression and gradient boosting models, a neural net with one hidden layer, and sklearn's cross-validation. Each model is a binary classifier, returning a 1 if we predict a runner will continue submitting runs, or a 0 if we predict a runner will not continue submitting runs.
+The goal of this project is to use data from speedrun.com's API to predict speedrunner retention rates across games. The retention rate is defined as how likely a runner is to continue submitting runs, given a particular game and category. We perform the analysis with several models: sklearn's logistic regression and gradient boosting models, a neural net with one hidden layer, and sklearn's cross-validation. Each model is a binary classifier, returning a 1 if we predict a runner will continue submitting runs, or a 0 if we predict a runner will not continue submitting runs.
 
 # Architecture
 
@@ -23,7 +23,7 @@ The goal: given some date B, and features from before B, can we predict if the r
 7. Train our model, then calculate AUC
 
 There are two kinds of leakage around which we construct our data pipeline:
-* Temporal leakage: step #5 above keeps the training set before B, and the test set after B. This ensures we are not "peeking ahead" into the future, and given the model data it wouldn't have otherwise known about. If we had not performed this step, the model could glimpse into the future and perform artificially better on both sets.
+* Temporal leakage: step #5 above keeps the training set before B, and the test set after B. This ensures we are not "peeking ahead" into the future, and given the model data it wouldn't have otherwise known about. If we had not performed this step, the model could glimpse into the future and perform artificially better on both sets. We use a 50/50 temporal split to maintain adequate test-set size, particularly for smaller games.
 * Identity leakage: Step #6 above prevents the same runner appearing in both sets, which would let the model recognize runners it will be tested on rather than learning generalizable patterns.
 
 Splitting in this way produces varying class balances by game. Hollow Knight, for example, produces a class balance of 25.3% retained (versus churned) in train, and 41.9% retained in test. Due to this inbalance, we report AUC rather than accuracy because it returns the probability we rank a retained runner above a churned runner, avoiding accuracy-based pitfalls.
@@ -43,22 +43,23 @@ We calculate the AUC for three popular speedrunning games: Hollow Knight, Super 
 | Model | Hollow Knight | Super Metroid | Destiny 2 |
 |---|---|---|---|
 | Logistic Regression (recency-only) | 0.7870 | 0.7974 | 0.6989 |
-| Logistic Regression (full) | 0.7930 | 0.7979 | 0.7297 |
+| Logistic Regression (full) | 0.7958 | 0.7853 | 0.7213 |
 | Gradient Boosting (recency-only) | 0.7879 | 0.7954 | 0.7220 |
-| Gradient Boosting (full) | 0.7919 | 0.8072 | 0.7115 |
-| MLP (recency-only) | 0.7921 | 0.8009 | 0.6975 |
-| MLP (full) | 0.7902 | 0.8113 | 0.6989 |
+| Gradient Boosting (full) | 0.8043 | 0.7971 | 0.6863 |
+| MLP (recency-only) | 0.7894 | 0.8009 | 0.7059 |
+| MLP (full) | 0.7947 | 0.7964 | 0.7157 |
 | Grouped CV (full, leaky) | 0.8814 +/- 0.0135 | 0.8783 +/- 0.0139 | 0.8564 +/- 0.0501 |
 
 # Discussion
 
+Full-feature models perform comparably to, or in several cases slightly worse than, their recency-only counterparts. Recency dominates prediction so thoroughly that the other features are essentially noise, and including them can slightly reduce AUC. This is reinforced by the gradient boosting feature importances (Figure 1), where last_run_days alone accounts for roughly 78% of the model's importance and all other features are near-negligible. Gradient boosting usually performs on par with or slightly above logistic regression, but the difference is minor. The MLPs perform similarly within games, which is expected for a relatively small, non-complex dataset. Non-recency features carry little usable, causing noise to shift the AUC randomly depending on the split. 
 
-For every game and model except for gradient boosting in Destiny 2, the full-featured model achieves a higher AUC than the recency-only featured model. However, the difference is minor, indicating that recency dominates prediction capabilities. Gradient boosting usually outperforms logistic regression, but again, the difference is minor. The MLPs perform similarly within games, which is expected for a relatively small, non-complex dataset.
+![Alternative description of the image](images//fi_Super_Metroid.png)
 
-Recency is a stronger indicator on some games than others, however. Super Metroid's MLP scores 0.8113, while Destiny 2 only reaches 0.6989. This cross-game variation appears tied to the structure of each game's runner population. Super Metroid and Hollow Knight are dedicated single-player speedrunning games with committed communities of roughly 550–600 qualifying runners each, yielding thousands of training examples. Destiny 2, by contrast, is a live-service game with no full-game category. Instead, runs are individual missions, and its population is dominated by one-and-done participants: only 61 runners cleared our minimum-history threshold, producing 480 examples versus over 5,000 for the other two games, which likely explains Destiny 2's lower AUC. These estimates are also less stable, reflected in Destiny 2's higher standard deviation (±0.050 versus ±0.014 for the others). More broadly, this suggests game-level properties such as community maturity and player commitment modulate how well activity patterns predict retention.
+Recency is a stronger indicator on some games than others, however. Super Metroid's recency-only MLP scores 0.8009, while Destiny 2 only reaches 0.7059. This cross-game variation appears tied to the structure of each game's runner population. Super Metroid and Hollow Knight are dedicated single-player speedrunning games with committed communities of roughly 550–600 qualifying runners each, yielding thousands of training examples. Destiny 2, by contrast, is a live-service game with no full-game category. Instead, runs are individual missions, and its population is dominated by one-and-done participants: only 61 runners cleared our minimum-history threshold, producing 480 examples versus over 5,000 for the other two games, which likely explains Destiny 2's lower AUC. These estimates are also less stable, reflected in Destiny 2's higher standard deviation (±0.050 versus ±0.014 for the others). More broadly, this suggests game-level properties such as community maturity and player commitment modulate how well activity patterns predict retention.
 
 Last, the grouped-CV AUC (~0.88) exceeds our temporal+grouped result (~0.79) by roughly 0.09. Grouped-CV catches identity but not temporal leakage, so the gap between these scores directly measures how much temporal leakage inflates AUC. This both quantifies the risk temporal leakage poses and confirms that our manual temporal split is working as intended.
 
 # Conclusion
 
-Recency dominates speedrunner retention prediction, and this result holds across three model families, three games, and two feature sets (recency-only and full). The ceiling on prediction is an AUC of 0.79, and the grouped-CV leakage demonstration confirms our methodology to remove identity and temporal leakage is sound.
+We have applied known ML techniques to a novel domain: speedrunning. Recency dominates speedrunner retention prediction, and this result holds across three model families, three games, and two feature sets (recency-only and full). The ceiling on prediction is an AUC of 0.79, and the grouped-CV leakage demonstration confirms our methodology to remove identity and temporal leakage is sound.
